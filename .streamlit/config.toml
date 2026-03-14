@@ -1,0 +1,36 @@
+[server]
+maxUploadSize = 20480
+maxMessageSize = 20480
+
+[client]
+showSidebarNavigation = false
+
+[theme]
+base = "light"
+primaryColor = "#0f766e"
+backgroundColor = "#f7f2e8"
+secondaryBackgroundColor = "#fbf7ef"
+textColor = "#17322f"
+font = "sans serif"
+headingFont = "serif"
+codeFont = "monospace"
+baseRadius = "1rem"
+buttonRadius = "999px"
+showWidgetBorder = true
+showSidebarBorder = false
+borderColor = "#d8cebf"
+dataframeBorderColor = "#d8cebf"
+dataframeHeaderBackgroundColor = "#efe2cb"
+
+[theme.sidebar]
+backgroundColor = "#17322f"
+secondaryBackgroundColor = "#224440"
+textColor = "#f7f1e8"
+primaryColor = "#e0a33a"
+font = "sans serif"
+headingFont = "serif"
+baseRadius = "1rem"
+buttonRadius = "999px"
+showWidgetBorder = false
+borderColor = "#30534f"
+dataframeBorderColor = "#30534f"

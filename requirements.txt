@@ -1,0 +1,13 @@
+tencentcloud-sdk-python
+cos-python-sdk-v5
+openai
+langgraph
+langchain-openai
+langchain-core
+pydantic
+python-dotenv
+streamlit
+plotly
+pandas
+pytest
+pypdf

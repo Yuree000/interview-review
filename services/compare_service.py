@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from core.exceptions import ProjectError
 from part_b.schemas import AnalysesDocument, CapabilitySnapshotDocument, CompareResultDocument
@@ -30,7 +31,16 @@ class ComparePayload:
     public_dimension_delta: dict[str, float]
     role_dimension_delta: dict[str, float]
     topic_deltas: list[TopicComparison]
+    highlights: "ComparisonHighlights"
     summary_markdown: str
+
+
+@dataclass
+class ComparisonHighlights:
+    weighted_total_delta: float
+    best_improved_dimension: str | None
+    biggest_regression_dimension: str | None
+    shared_topic_count: int
 
 
 class CompareService:
@@ -49,6 +59,12 @@ class CompareService:
         public_dimension_delta = self._dimension_delta(snapshot_a.public_dimensions, snapshot_b.public_dimensions)
         role_dimension_delta = self._dimension_delta(snapshot_a.role_dimensions, snapshot_b.role_dimensions)
         topic_deltas = self._topic_deltas(analyses_a, analyses_b)
+        highlights = self._build_highlights(
+            analyses_a=analyses_a,
+            analyses_b=analyses_b,
+            public_dimension_delta=public_dimension_delta,
+            topic_deltas=topic_deltas,
+        )
         result = self._result_document(
             id_a=id_a,
             id_b=id_b,
@@ -71,7 +87,14 @@ class CompareService:
             public_dimension_delta=public_dimension_delta,
             role_dimension_delta=role_dimension_delta,
             topic_deltas=topic_deltas,
-            summary_markdown=self.render_markdown(result, public_dimension_delta, role_dimension_delta, topic_deltas),
+            highlights=highlights,
+            summary_markdown=self.render_markdown(
+                result,
+                public_dimension_delta,
+                role_dimension_delta,
+                topic_deltas,
+                highlights,
+            ),
         )
 
     def render_markdown(
@@ -80,12 +103,20 @@ class CompareService:
         public_dimension_delta: dict[str, float],
         role_dimension_delta: dict[str, float],
         topic_deltas: list[TopicComparison],
+        highlights: ComparisonHighlights,
     ) -> str:
         lines = [
             "# 面试对比",
             "",
             f"- interview_id_a: {result.interview_id_a}",
             f"- interview_id_b: {result.interview_id_b}",
+            "",
+            "## 关键摘要",
+            "",
+            f"- 加权总分变化: {highlights.weighted_total_delta:+.1f}",
+            f"- 最明显提升维度: {highlights.best_improved_dimension or '暂无'}",
+            f"- 最大回落维度: {highlights.biggest_regression_dimension or '暂无'}",
+            f"- 共享题目数: {highlights.shared_topic_count}",
             "",
             "## 进步点",
             "",
@@ -126,6 +157,33 @@ class CompareService:
                 lines.append(f"- summary_b: {item.summary_b}")
                 lines.append("")
         return "\n".join(lines).strip() + "\n"
+
+    def export_payload(self, payload: ComparePayload) -> dict[str, object]:
+        return {
+            "interview_id_a": payload.interview_id_a,
+            "interview_id_b": payload.interview_id_b,
+            "highlights": {
+                "weighted_total_delta": payload.highlights.weighted_total_delta,
+                "best_improved_dimension": payload.highlights.best_improved_dimension,
+                "biggest_regression_dimension": payload.highlights.biggest_regression_dimension,
+                "shared_topic_count": payload.highlights.shared_topic_count,
+            },
+            "result": payload.result.model_dump(mode="json"),
+            "public_dimension_delta": payload.public_dimension_delta,
+            "role_dimension_delta": payload.role_dimension_delta,
+            "topic_deltas": [
+                {
+                    "topic_key": item.topic_key,
+                    "score_a": item.score_a,
+                    "score_b": item.score_b,
+                    "delta": item.delta,
+                    "summary_a": item.summary_a,
+                    "summary_b": item.summary_b,
+                }
+                for item in payload.topic_deltas
+            ],
+            "summary_markdown": payload.summary_markdown,
+        }
 
     def _result_document(
         self,
@@ -175,8 +233,8 @@ class CompareService:
         )
 
     def _topic_deltas(self, analyses_a: AnalysesDocument, analyses_b: AnalysesDocument) -> list[TopicComparison]:
-        keyed_a = {analysis.main_question: analysis for analysis in analyses_a.analyses}
-        keyed_b = {analysis.main_question: analysis for analysis in analyses_b.analyses}
+        keyed_a = {self._normalized_topic_key(analysis.main_question, analysis.topic_id): analysis for analysis in analyses_a.analyses}
+        keyed_b = {self._normalized_topic_key(analysis.main_question, analysis.topic_id): analysis for analysis in analyses_b.analyses}
         topic_keys = sorted(set(keyed_a) & set(keyed_b))
         deltas: list[TopicComparison] = []
         for key in topic_keys:
@@ -185,7 +243,7 @@ class CompareService:
             delta = round(analysis_b.rubric.weighted_total() - analysis_a.rubric.weighted_total(), 1)
             deltas.append(
                 TopicComparison(
-                    topic_key=key,
+                    topic_key=analysis_a.main_question or analysis_b.main_question or f"topic-{analysis_a.topic_id}",
                     score_a=analysis_a.rubric.weighted_total(),
                     score_b=analysis_b.rubric.weighted_total(),
                     delta=delta,
@@ -201,6 +259,34 @@ class CompareService:
             name: round(after.get(name, 0.0) - before.get(name, 0.0), 1)
             for name in names
         }
+
+    def _build_highlights(
+        self,
+        *,
+        analyses_a: AnalysesDocument,
+        analyses_b: AnalysesDocument,
+        public_dimension_delta: dict[str, float],
+        topic_deltas: list[TopicComparison],
+    ) -> ComparisonHighlights:
+        before = analyses_a.summary.average_scores.get("weighted_total", 0.0) if analyses_a.summary else 0.0
+        after = analyses_b.summary.average_scores.get("weighted_total", 0.0) if analyses_b.summary else 0.0
+
+        best_improved_dimension = None
+        positive_dimensions = {name: delta for name, delta in public_dimension_delta.items() if delta > 0}
+        if positive_dimensions:
+            best_improved_dimension = max(positive_dimensions, key=positive_dimensions.get)
+
+        biggest_regression_dimension = None
+        negative_dimensions = {name: delta for name, delta in public_dimension_delta.items() if delta < 0}
+        if negative_dimensions:
+            biggest_regression_dimension = min(negative_dimensions, key=negative_dimensions.get)
+
+        return ComparisonHighlights(
+            weighted_total_delta=round(after - before, 1),
+            best_improved_dimension=best_improved_dimension,
+            biggest_regression_dimension=biggest_regression_dimension,
+            shared_topic_count=len(topic_deltas),
+        )
 
     def _next_focus(
         self,
@@ -221,3 +307,8 @@ class CompareService:
 
     def _bullet_block(self, items: list[str]) -> list[str]:
         return [f"- {item}" for item in items] or ["- 暂无"]
+
+    def _normalized_topic_key(self, question: str | None, topic_id: int) -> str:
+        if question and question.strip():
+            return re.sub(r"[\W_]+", "", question).lower()
+        return f"topic-{topic_id}"

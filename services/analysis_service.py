@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Callable
 from uuid import uuid4
@@ -32,6 +33,7 @@ from services.profile_service import ProfileService
 
 
 StatusCallback = Callable[[StatusDocument], None]
+RERUNNABLE_STAGES = ("B1", "B4", "B6")
 
 
 class AnalysisService:
@@ -75,6 +77,67 @@ class AnalysisService:
         status_callback: StatusCallback | None = None,
     ) -> str:
         return self.run_preprocessing(audio_path, status_callback=status_callback)
+
+    def rerun_from_stage(
+        self,
+        interview_id: str,
+        stage: str,
+        *,
+        status_callback: StatusCallback | None = None,
+    ) -> StatusDocument:
+        normalized_stage = stage.upper().strip()
+        if normalized_stage not in RERUNNABLE_STAGES:
+            raise ValueError(f"Unsupported rerun stage: {stage}. Supported stages: {', '.join(RERUNNABLE_STAGES)}")
+
+        self.resume_from(interview_id, normalized_stage)
+        if normalized_stage == "B1":
+            self.run_phase3(interview_id, status_callback=status_callback)
+            self.run_phase4(interview_id, status_callback=status_callback)
+        elif normalized_stage == "B4":
+            self.run_phase4(interview_id, status_callback=status_callback)
+        else:
+            self.refresh_artifacts(interview_id, status_callback=status_callback)
+
+        final_status = self.repository.load_status(interview_id)
+        if final_status is None:
+            raise RuntimeError(f"Missing status for interview: {interview_id}")
+        return final_status
+
+    def refresh_artifacts(
+        self,
+        interview_id: str,
+        *,
+        status_callback: StatusCallback | None = None,
+    ) -> StatusDocument:
+        bundle = self.repository.load_interview(interview_id)
+        if bundle.analyses is None:
+            raise RuntimeError(f"Missing analyses for interview: {interview_id}")
+
+        try:
+            self.update_stage(
+                interview_id,
+                "B6",
+                StageStatus.running,
+                pipeline_status=PipelineStatus.analyzing,
+                status_callback=status_callback,
+            )
+            self.capability_service.ensure_artifacts(interview_id)
+            return self.update_stage(
+                interview_id,
+                "B6",
+                StageStatus.success,
+                status_callback=status_callback,
+            )
+        except Exception as exc:
+            self.update_stage(
+                interview_id,
+                "B6",
+                StageStatus.failed,
+                pipeline_status=PipelineStatus.failed,
+                error=str(exc),
+                status_callback=status_callback,
+            )
+            raise
 
     def run_preprocessing(
         self,
@@ -329,7 +392,6 @@ class AnalysisService:
                 analyses=analyses,
             )
             self.attach_report(interview_id, report_markdown)
-            self.capability_service.ensure_artifacts(interview_id)
             self.update_stage(
                 interview_id,
                 "B5",
@@ -337,6 +399,7 @@ class AnalysisService:
                 pipeline_status=PipelineStatus.analyzing,
                 status_callback=status_callback,
             )
+            self.refresh_artifacts(interview_id, status_callback=status_callback)
             return interview_id
         except Exception as exc:
             current_status = self.repository.load_status(interview_id)
@@ -402,6 +465,27 @@ class AnalysisService:
     def list_interviews(self) -> list:
         return self.repository.list_all()
 
+    def export_bundle_payload(self, interview_id: str) -> dict[str, object]:
+        bundle = self.load_bundle(interview_id)
+        return {
+            "interview_id": interview_id,
+            "status": self._dump_document(bundle.status),
+            "meta": self._dump_document(bundle.meta),
+            "transcription": self._dump_document(bundle.transcription),
+            "qa_pairs": self._dump_document(bundle.qa_pairs),
+            "analyses": self._dump_document(bundle.analyses),
+            "capability_snapshot": self._dump_document(bundle.capability_snapshot),
+            "report_markdown": bundle.report_markdown,
+        }
+
     def _build_interview_id(self, label: str) -> str:
         safe_label = label.replace(" ", "_").replace("/", "_").replace("\\", "_")
         return f"{utc_now_iso()[:10]}_{safe_label}_{uuid4().hex[:8]}"
+
+    def _dump_document(self, document: object) -> dict[str, object] | None:
+        if document is None:
+            return None
+        if hasattr(document, "model_dump"):
+            payload = document.model_dump(mode="json")
+            return payload if isinstance(payload, Mapping) else dict(payload)
+        raise TypeError(f"Unsupported document type for export: {type(document).__name__}")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import streamlit as st
 
 from services.analysis_service import AnalysisService
@@ -9,6 +11,17 @@ from ui.theme import configure_page, render_section_intro, render_stat_cards
 
 service = AnalysisService()
 all_items = service.list_interviews()
+
+
+def _rerun_options(bundle) -> dict[str, str]:
+    options: dict[str, str] = {}
+    if bundle.transcription is not None and bundle.meta is not None:
+        options["B1"] = "B1 · Rebuild role/context/QA/report"
+    if bundle.qa_pairs is not None and bundle.meta is not None:
+        options["B4"] = "B4 · Rebuild analyses/report/profile"
+    if bundle.analyses is not None:
+        options["B6"] = "B6 · Refresh snapshot/profile only"
+    return options
 
 configure_page(
     title="History",
@@ -85,9 +98,64 @@ selected_interview_id = st.selectbox(
 
 if selected_interview_id:
     bundle = service.load_bundle(selected_interview_id)
+    rerun_options = _rerun_options(bundle)
+    bundle_payload = service.export_bundle_payload(selected_interview_id)
     st.write("")
     with st.container(border=True):
         st.markdown("#### Interview detail")
         if bundle.meta is not None:
             st.caption(f"{bundle.meta.title or selected_interview_id} | {bundle.meta.source_file_name}")
+        if bundle.status is not None:
+            st.caption(f"Pipeline status: {bundle.status.status.value} | Current stage: {bundle.status.current_stage}")
+
+        actions_col, export_col = st.columns([1.05, 0.95], gap="large")
+        with actions_col:
+            st.markdown("##### Workflow actions")
+            if rerun_options:
+                rerun_label = st.selectbox(
+                    "Rerun from saved stage",
+                    options=[""] + list(rerun_options.values()),
+                    index=0,
+                    key=f"history_rerun_{selected_interview_id}",
+                    help="Use saved artifacts to rerun later stages without re-uploading the source file.",
+                )
+                rerun_stage = next(
+                    (stage for stage, label in rerun_options.items() if label == rerun_label),
+                    "",
+                )
+                if st.button(
+                    "Run selected stage",
+                    disabled=not rerun_stage,
+                    use_container_width=True,
+                    key=f"history_rerun_button_{selected_interview_id}",
+                ):
+                    try:
+                        final_status = service.rerun_from_stage(selected_interview_id, rerun_stage)
+                    except Exception as exc:
+                        st.exception(exc)
+                    else:
+                        st.success(
+                            f"Rerun finished at {final_status.current_stage} with status {final_status.status.value}."
+                        )
+                        st.rerun()
+            else:
+                st.info("No rerunnable stage is available for this interview yet.")
+
+        with export_col:
+            st.markdown("##### Export")
+            st.download_button(
+                "Download report markdown",
+                data=bundle.report_markdown or "",
+                file_name=f"{selected_interview_id}-report.md",
+                disabled=not bundle.report_markdown,
+                use_container_width=True,
+            )
+            st.download_button(
+                "Download bundle JSON",
+                data=json.dumps(bundle_payload, ensure_ascii=False, indent=2),
+                file_name=f"{selected_interview_id}-bundle.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+
         render_analysis_bundle(bundle)

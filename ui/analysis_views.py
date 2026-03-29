@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from core.time_utils import format_ms_range, format_timestamp_ms
 from part_b.schemas import FollowupPair, TopicAnalysis, TopicGroup, TranscriptionDocument
 from services.interview_repo import InterviewBundle
 from ui.theme import render_stat_cards
@@ -11,11 +12,16 @@ def render_analysis_bundle(bundle: InterviewBundle) -> None:
     transcript_count = len(bundle.transcription.segments) if bundle.transcription else 0
     qa_count = len(bundle.qa_pairs.topics) if bundle.qa_pairs else 0
     report_status = "Ready" if bundle.report_markdown else "Pending"
+    pipeline_stage = bundle.status.current_stage if bundle.status else "Pending"
+    pipeline_status = bundle.status.status.value if bundle.status else "pending"
+    snapshot_status = "Ready" if bundle.capability_snapshot else "Pending"
     render_stat_cards(
         [
+            ("Pipeline", f"{pipeline_stage} · {pipeline_status}", "Current pipeline stage and saved status"),
             ("Transcript Segments", str(transcript_count), "Speaker-attributed transcript blocks"),
             ("Review Questions", str(qa_count), "High-value questions selected for replay"),
             ("Report", report_status, "Final interview review markdown"),
+            ("Snapshot", snapshot_status, "Capability snapshot generated from the saved run"),
         ]
     )
     st.write("")
@@ -83,6 +89,8 @@ def render_qa_pairs_with_reference(bundle: InterviewBundle) -> None:
                 st.write("")
                 _render_followups_block(topic)
             with right:
+                _render_analysis_insights_block(analysis)
+                st.write("")
                 _render_reference_block(analysis)
 
 
@@ -157,6 +165,32 @@ def _render_reference_block(analysis: TopicAnalysis | None) -> None:
                 st.write(f"- {step}")
 
 
+def _render_analysis_insights_block(analysis: TopicAnalysis | None) -> None:
+    with st.container(border=True):
+        st.markdown("##### Analysis transparency")
+        if analysis is None:
+            st.info("Per-question analysis is not available yet.")
+            return
+
+        st.caption(f"Weighted total: {analysis.rubric.weighted_total()}")
+        st.dataframe(
+            [
+                {"metric": label, "score": score}
+                for label, score in _score_breakdown_rows(analysis)
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("**Evidence timeline**")
+        evidence_lines = _evidence_lines(analysis)
+        if evidence_lines:
+            for line in evidence_lines:
+                st.write(f"- {line}")
+        else:
+            st.info("No evidence snippets were attached to this topic.")
+
+
 def _format_transcript_line(
     *,
     speaker_id: str,
@@ -222,20 +256,38 @@ def _speaker_label(*, speaker_id: str, role: str) -> str:
 
 
 def _format_range(start_ms: int | None, end_ms: int | None) -> str:
-    start_text = _format_timestamp(start_ms)
-    end_text = _format_timestamp(end_ms)
-    if start_text and end_text:
-        return f"{start_text} - {end_text}"
-    return start_text or end_text or "--:--"
+    return format_ms_range(start_ms, end_ms)
 
 
 def _format_timestamp(value_ms: int | None) -> str:
-    if value_ms is None:
-        return ""
-    total_seconds = max(0, value_ms // 1000)
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    if hours:
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-    return f"{minutes:02d}:{seconds:02d}"
+    return format_timestamp_ms(value_ms)
 
+
+def _score_breakdown_rows(analysis: TopicAnalysis) -> list[tuple[str, str]]:
+    label_map = {
+        "accuracy": "Accuracy",
+        "completeness": "Completeness",
+        "depth": "Depth",
+        "structure": "Structure",
+        "position_fit": "Position Fit",
+        "followup_handling": "Follow-up",
+        "weighted_total": "Weighted Total",
+    }
+    return [
+        (label_map.get(key, key), _format_score_value(value))
+        for key, value in analysis.rubric.score_breakdown().items()
+    ]
+
+
+def _format_score_value(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else f"{value:.1f}"
+
+
+def _evidence_lines(analysis: TopicAnalysis) -> list[str]:
+    if analysis.evidence_items:
+        return [
+            f"[{format_ms_range(item.start_ms, item.end_ms)}] {item.text}"
+            for item in analysis.evidence_items
+            if item.text.strip()
+        ]
+    return analysis.evidence_quotes

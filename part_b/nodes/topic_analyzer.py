@@ -15,6 +15,7 @@ from part_b.prompts.phase4 import (
 from part_b.reference_adapter import ReferenceProvider, get_default_reference_provider
 from part_b.schemas import (
     AnalysesDocument,
+    EvidenceSnippet,
     InterviewMetaDocument,
     QaPairsDocument,
     QuestionUnderstanding,
@@ -90,6 +91,7 @@ def analyze_topic(
 ) -> TopicAnalysis:
     provider = reference_provider or get_default_reference_provider()
     settings = get_settings()
+    evidence_items = _evidence_items(topic)
 
     fallback_understanding = _heuristic_question_understanding(topic)
     fallback_reference = _heuristic_reference_answer(
@@ -123,6 +125,7 @@ def analyze_topic(
         resume=resume,
         reference_answer=reference_answer,
         question_understanding=fallback_understanding,
+        evidence_items=evidence_items,
     )
     llm_evaluation = safe_invoke_json_model(
         TopicEvaluationDraft,
@@ -148,6 +151,7 @@ def analyze_topic(
         strengths=evaluation.strengths,
         weaknesses=evaluation.weaknesses,
         evidence_quotes=evaluation.evidence_quotes,
+        evidence_items=evidence_items,
         reference_answer=reference_answer,
     )
 
@@ -216,6 +220,7 @@ def _heuristic_topic_evaluation(
     resume: ResumeProfileDocument | None,
     reference_answer: ReferenceAnswer,
     question_understanding: QuestionUnderstanding,
+    evidence_items: list[EvidenceSnippet],
 ) -> TopicEvaluationDraft:
     candidate_text = _candidate_text(topic)
     rubric = _rubric(
@@ -229,7 +234,7 @@ def _heuristic_topic_evaluation(
         rubric=rubric,
         strengths=_strengths(topic, rubric, candidate_text),
         weaknesses=_weaknesses(topic, rubric, candidate_text, reference_answer.must_hit_points),
-        evidence_quotes=_evidence_quotes(topic),
+        evidence_quotes=_evidence_quotes_from_items(evidence_items),
     )
 
 
@@ -463,23 +468,52 @@ def _weaknesses(
     return _dedupe(weaknesses)[:4] or ["Adding measurable outcomes would make the answer more convincing."]
 
 
-def _evidence_quotes(topic: TopicGroup, limit: int = 3) -> list[str]:
-    quotes: list[str] = []
+def _evidence_items(topic: TopicGroup, limit: int = 3) -> list[EvidenceSnippet]:
+    snippets: list[EvidenceSnippet] = []
+    preferred_turn_ids = set(topic.answer_turn_ids)
+
+    candidate_turns = [
+        turn
+        for turn in topic.exchanges
+        if turn.role.value == "candidate"
+        and turn.text.strip()
+        and (not preferred_turn_ids or turn.turn_id in preferred_turn_ids)
+    ]
+    if not candidate_turns:
+        candidate_turns = [
+            turn
+            for turn in topic.exchanges
+            if turn.role.value == "candidate" and turn.text.strip()
+        ]
+
+    for turn in candidate_turns[:limit]:
+        snippets.append(
+            EvidenceSnippet(
+                text=turn.text.strip(),
+                speaker_role=turn.role,
+                start_ms=turn.start_ms,
+                end_ms=turn.end_ms,
+                turn_id=turn.turn_id,
+            )
+        )
+
+    if snippets:
+        return snippets
+
     if topic.answer_text:
-        for paragraph in [part.strip() for part in topic.answer_text.split("\n") if part.strip()]:
-            quotes.append(paragraph[:120] + ("..." if len(paragraph) > 120 else ""))
-            if len(quotes) >= limit:
-                return quotes
-    for turn in topic.exchanges:
-        if turn.role.value != "candidate":
-            continue
-        text = turn.text.strip()
+        for paragraph in [part.strip() for part in topic.answer_text.split("\n") if part.strip()][:limit]:
+            snippets.append(EvidenceSnippet(text=paragraph))
+    return snippets
+
+
+def _evidence_quotes_from_items(items: list[EvidenceSnippet]) -> list[str]:
+    quotes: list[str] = []
+    for item in items:
+        text = item.text.strip()
         if not text:
             continue
         quotes.append(text[:120] + ("..." if len(text) > 120 else ""))
-        if len(quotes) >= limit:
-            break
-    return quotes
+    return quotes[:3]
 
 
 def _clamp_score(score: int) -> int:

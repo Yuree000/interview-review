@@ -189,6 +189,19 @@ class RubricScore(AppBaseModel):
             total_weight += 0.1
         return round((weighted_sum / total_weight), 1)
 
+    def score_breakdown(self) -> dict[str, float]:
+        breakdown: dict[str, float] = {
+            "accuracy": float(self.accuracy),
+            "completeness": float(self.completeness),
+            "depth": float(self.depth),
+            "structure": float(self.structure),
+            "position_fit": float(self.position_fit),
+        }
+        if self.followup_handling is not None:
+            breakdown["followup_handling"] = float(self.followup_handling)
+        breakdown["weighted_total"] = self.weighted_total()
+        return breakdown
+
 
 class ReferenceSource(AppBaseModel):
     title: str
@@ -204,6 +217,14 @@ class ReferenceAnswer(AppBaseModel):
     sources: list[ReferenceSource] = Field(default_factory=list)
 
 
+class EvidenceSnippet(AppBaseModel):
+    text: str
+    speaker_role: SpeakerRole = SpeakerRole.candidate
+    start_ms: int | None = None
+    end_ms: int | None = None
+    turn_id: str | None = None
+
+
 class TopicAnalysis(AppBaseModel):
     topic_id: int
     main_question: str
@@ -212,6 +233,7 @@ class TopicAnalysis(AppBaseModel):
     strengths: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(default_factory=list)
     evidence_quotes: list[str] = Field(default_factory=list)
+    evidence_items: list[EvidenceSnippet] = Field(default_factory=list)
     reference_answer: ReferenceAnswer | None = None
 
 

@@ -62,7 +62,7 @@ def run_phase4_gate() -> list[tuple[str, str, str]]:
                     question_text="请介绍一下你最近做的订单系统。",
                     question_turn_ids=["t1"],
                     answer_text="我最近负责一个订单系统，核心技术是 Java、Spring Boot、Redis 和 MySQL。",
-                    answer_turn_ids=["t2"],
+                    answer_turn_ids=["t2", "t4", "t6"],
                     followups=[
                         {
                             "question": "Redis 在里面怎么用的？",
@@ -83,12 +83,54 @@ def run_phase4_gate() -> list[tuple[str, str, str]]:
                     exchange_count=6,
                     has_followup=True,
                     exchanges=[
-                        DialogueTurn(turn_id="t1", speaker_id="0", role="interviewer", text="请介绍一下你最近做的订单系统。"),
-                        DialogueTurn(turn_id="t2", speaker_id="1", role="candidate", text="我最近负责一个订单系统，核心技术是 Java、Spring Boot、Redis 和 MySQL。"),
-                        DialogueTurn(turn_id="t3", speaker_id="0", role="interviewer", text="Redis 在里面怎么用的？"),
-                        DialogueTurn(turn_id="t4", speaker_id="1", role="candidate", text="主要做热点缓存和分布式锁，也处理缓存失效和重试兜底。"),
-                        DialogueTurn(turn_id="t5", speaker_id="0", role="interviewer", text="服务为什么这样拆分？"),
-                        DialogueTurn(turn_id="t6", speaker_id="1", role="candidate", text="我们按订单、库存、支付拆分，核心是隔离复杂度并提升扩展性，上线后接口延迟下降了 30%。"),
+                        DialogueTurn(
+                            turn_id="t1",
+                            speaker_id="0",
+                            role="interviewer",
+                            text="请介绍一下你最近做的订单系统。",
+                            start_ms=0,
+                            end_ms=2000,
+                        ),
+                        DialogueTurn(
+                            turn_id="t2",
+                            speaker_id="1",
+                            role="candidate",
+                            text="我最近负责一个订单系统，核心技术是 Java、Spring Boot、Redis 和 MySQL。",
+                            start_ms=3000,
+                            end_ms=8000,
+                        ),
+                        DialogueTurn(
+                            turn_id="t3",
+                            speaker_id="0",
+                            role="interviewer",
+                            text="Redis 在里面怎么用的？",
+                            start_ms=9000,
+                            end_ms=11000,
+                        ),
+                        DialogueTurn(
+                            turn_id="t4",
+                            speaker_id="1",
+                            role="candidate",
+                            text="主要做热点缓存和分布式锁，也处理缓存失效和重试兜底。",
+                            start_ms=12000,
+                            end_ms=17000,
+                        ),
+                        DialogueTurn(
+                            turn_id="t5",
+                            speaker_id="0",
+                            role="interviewer",
+                            text="服务为什么这样拆分？",
+                            start_ms=18000,
+                            end_ms=20000,
+                        ),
+                        DialogueTurn(
+                            turn_id="t6",
+                            speaker_id="1",
+                            role="candidate",
+                            text="我们按订单、库存、支付拆分，核心是隔离复杂度并提升扩展性，上线后接口延迟下降了 30%。",
+                            start_ms=21000,
+                            end_ms=26000,
+                        ),
                     ],
                 ),
                 TopicGroup(
@@ -104,8 +146,22 @@ def run_phase4_gate() -> list[tuple[str, str, str]]:
                     exchange_count=2,
                     has_followup=False,
                     exchanges=[
-                        DialogueTurn(turn_id="t7", speaker_id="0", role="interviewer", text="你为什么想加入我们团队？"),
-                        DialogueTurn(turn_id="t8", speaker_id="1", role="candidate", text="我希望继续做高并发后端，也认可你们的业务方向。"),
+                        DialogueTurn(
+                            turn_id="t7",
+                            speaker_id="0",
+                            role="interviewer",
+                            text="你为什么想加入我们团队？",
+                            start_ms=30000,
+                            end_ms=32000,
+                        ),
+                        DialogueTurn(
+                            turn_id="t8",
+                            speaker_id="1",
+                            role="candidate",
+                            text="我希望继续做高并发后端，也认可你们的业务方向。",
+                            start_ms=33000,
+                            end_ms=37000,
+                        ),
                     ],
                 ),
             ],
@@ -129,6 +185,9 @@ def run_phase4_gate() -> list[tuple[str, str, str]]:
         assert analysis.question_understanding.skill_tested
         assert 1 <= analysis.rubric.accuracy <= 10
         assert analysis.evidence_quotes
+        assert analysis.evidence_items
+        assert analysis.evidence_items[0].start_ms == 3000
+        assert analysis.evidence_items[0].end_ms == 8000
 
     def topic_analysis_llm_split_merge() -> None:
         original = topic_module.safe_invoke_json_model
@@ -182,6 +241,7 @@ def run_phase4_gate() -> list[tuple[str, str, str]]:
         assert analysis.question_understanding.expected_points
         assert analysis.weaknesses == ["缺少更明确的量化结果。"]
         assert analysis.evidence_quotes
+        assert analysis.evidence_items
 
     def summary_and_report_generation() -> None:
         original_topic = topic_module.safe_invoke_json_model
@@ -209,6 +269,10 @@ def run_phase4_gate() -> list[tuple[str, str, str]]:
         assert "# 面试复盘报告" in markdown
         assert "## 总体结论" in markdown
         assert "### 题目 1" in markdown
+        assert "评分拆解" in markdown
+        assert "综合加权" in markdown
+        assert "证据时间线" in markdown
+        assert "00:03 - 00:08" in markdown
         assert "必答点" in markdown
         assert "答题框架" in markdown
 
@@ -238,10 +302,18 @@ def run_phase4_gate() -> list[tuple[str, str, str]]:
         assert bundle.status is not None
         assert bundle.status.stages["B4"].value == "success"
         assert bundle.status.stages["B5"].value == "success"
+        assert bundle.status.stages["B6"].value == "success"
+        assert bundle.status.current_stage == "B6"
+        assert bundle.status.status.value == "completed"
         assert bundle.analyses is not None
         assert bundle.analyses.summary is not None
+        assert bundle.analyses.analyses[0].evidence_items
         assert bundle.report_markdown is not None
         assert "## 逐题复盘" in bundle.report_markdown
+        assert "评分拆解" in bundle.report_markdown
+        assert "综合加权" in bundle.report_markdown
+        assert "证据时间线" in bundle.report_markdown
+        assert "00:03 - 00:08" in bundle.report_markdown
         assert "必答点" in bundle.report_markdown
 
     check("topic_analysis_fallback", topic_analysis_fallback)

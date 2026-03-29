@@ -14,7 +14,7 @@ The app takes a recorded interview, generates a transcript with speaker attribut
 - AI reference answers and per-question review
 - Markdown review report generation
 - Resume import from `PDF / DOCX / TXT / MD`
-- History, growth comparison, dashboard, and profile pages
+- History, growth comparison, multi-run trend view, dashboard, and profile pages
 
 ## Tech Stack
 
@@ -27,7 +27,8 @@ The app takes a recorded interview, generates a transcript with speaker attribut
 ## Requirements
 
 - Windows
-- Python 3.11+ recommended
+- Python 3.11 to 3.13 validated
+- Python 3.14 may run, but some dependencies currently emit compatibility warnings
 - FFmpeg and FFprobe available in PATH
 - Tencent Cloud credentials for ASR and COS
 - Kimi / Moonshot API key
@@ -54,6 +55,8 @@ copy .env.example .env
 ```bash
 .\.venv\Scripts\python.exe -m scripts.self_check
 ```
+
+The self-check creates the local runtime workspace automatically, including `runtime/uploads` for browser-uploaded files.
 
 5. Start the app:
 
@@ -94,6 +97,8 @@ Important optional values:
 - `LLM_STRUCTURED_MODEL`
 - `FFMPEG_BINARY`
 - `FFPROBE_BINARY`
+- `RUNTIME_DIR`
+- `UPLOAD_DIR`
 
 See `.env.example` for the full template.
 
@@ -107,7 +112,7 @@ See `.env.example` for the full template.
    - extracted QA pairs
    - AI reference answers
    - final report
-5. Use `History`, `Growth`, and `Profile` for follow-up review
+5. Use `History`, `Growth`, and `Profile` for follow-up review, trend tracking, and cross-run comparison
 
 ## Project Structure
 
@@ -118,6 +123,7 @@ See `.env.example` for the full template.
 - `part_b/`: QA extraction, analysis, reporting
 - `services/`: repository and orchestration services
 - `scripts/`: self-check and gate runners
+- `runtime/`: local upload workspace for browser-side files
 - `tests/`: gate and runtime tests
 
 ## Development Checks

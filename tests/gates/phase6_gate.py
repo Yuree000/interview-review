@@ -8,6 +8,7 @@ from part_b.schemas import (
     CapabilitySnapshotDocument,
     CompareResultDocument,
     GlobalProfileDocument,
+    InterviewMetaDocument,
     InterviewSummary,
     QuestionUnderstanding,
     ResumeProfileDocument,
@@ -20,6 +21,8 @@ from tests.gates.module_loader import load_module
 InterviewRepository = load_module("gate_phase6_interview_repo", "services/interview_repo.py").InterviewRepository
 ProfileService = load_module("gate_phase6_profile_service", "services/profile_service.py").ProfileService
 ResumeIngestService = load_module("gate_phase6_resume_ingest_service", "services/resume_ingest_service.py").ResumeIngestService
+CompareService = load_module("gate_phase6_compare_service", "services/compare_service.py").CompareService
+TrendService = load_module("gate_phase6_trend_service", "services/trend_service.py").TrendService
 
 
 def run_phase6_gate() -> list[tuple[str, str, str]]:
@@ -76,6 +79,24 @@ def run_phase6_gate() -> list[tuple[str, str, str]]:
         repo = InterviewRepository(output_root=root / "repo")
         id_a = "2026-03-08_backend_a"
         id_b = "2026-03-08_backend_b"
+        repo.save_meta(
+            InterviewMetaDocument(
+                interview_id=id_a,
+                title="Interview A",
+                source_file_name="a.mp4",
+                input_type="video",
+                target_position="Backend Engineer",
+            )
+        )
+        repo.save_meta(
+            InterviewMetaDocument(
+                interview_id=id_b,
+                title="Interview B",
+                source_file_name="b.mp4",
+                input_type="video",
+                target_position="Backend Engineer",
+            )
+        )
         repo.save_analyses(sample_analysis(id_a, 7.4))
         repo.save_analyses(sample_analysis(id_b, 8.1))
         repo.save_capability_snapshot(
@@ -87,6 +108,7 @@ def run_phase6_gate() -> list[tuple[str, str, str]]:
                 weaknesses=["could quantify impact"],
                 next_focus=["add metrics"],
                 summary="snapshot a",
+                updated_at="2026-03-08T10:00:00+08:00",
             )
         )
         repo.save_capability_snapshot(
@@ -98,6 +120,7 @@ def run_phase6_gate() -> list[tuple[str, str, str]]:
                 weaknesses=["needs deeper examples"],
                 next_focus=["deeper examples"],
                 summary="snapshot b",
+                updated_at="2026-03-15T10:00:00+08:00",
             )
         )
         return repo, id_a, id_b
@@ -151,6 +174,23 @@ def run_phase6_gate() -> list[tuple[str, str, str]]:
         )
         assert document.next_focus == ["quantify outcomes"]
 
+    def compare_service_export_payload() -> None:
+        repo, id_a, id_b = make_repo()
+        service = CompareService(repository=repo)
+        payload = service.compare(id_a, id_b)
+        export_payload = service.export_payload(payload)
+        assert "highlights" in export_payload
+        assert export_payload["summary_markdown"].startswith("# 面试对比")
+
+    def trend_service_export_payload() -> None:
+        repo, _, _ = make_repo()
+        service = TrendService(repository=repo)
+        payload = service.build_payload()
+        export_payload = service.export_payload(payload)
+        assert payload.highlights.run_count == 2
+        assert export_payload["points"][0]["interview_id"] == "2026-03-08_backend_a"
+        assert export_payload["summary_markdown"].startswith("# 面试趋势")
+
     def resume_upload_ingest_roundtrip() -> None:
         service = ResumeIngestService(profile_service=ProfileService(output_root=root / "upload_profiles"))
         result = service.ingest_bytes(
@@ -167,5 +207,7 @@ def run_phase6_gate() -> list[tuple[str, str, str]]:
     check("resume_and_global_profile_roundtrip", resume_and_global_profile_roundtrip)
     check("comparison_input_bundle_available", comparison_input_bundle_available)
     check("compare_result_document_schema", compare_result_document_schema)
+    check("compare_service_export_payload", compare_service_export_payload)
+    check("trend_service_export_payload", trend_service_export_payload)
     check("resume_upload_ingest_roundtrip", resume_upload_ingest_roundtrip)
     return results

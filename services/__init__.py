@@ -6,6 +6,7 @@ from services.compare_service import CompareService
 from services.interview_repo import InterviewBundle, InterviewListItem, InterviewRepository
 from services.profile_service import ProfileService
 from services.resume_ingest_service import ResumeIngestService
+from services.trend_service import TrendService
 
 __all__ = [
     "AnalysisService",
@@ -17,4 +18,5 @@ __all__ = [
     "InterviewRepository",
     "ProfileService",
     "ResumeIngestService",
+    "TrendService",
 ]

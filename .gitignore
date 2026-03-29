@@ -18,6 +18,8 @@ outputs/*
 !outputs/.gitkeep
 audio_cache/*
 !audio_cache/.gitkeep
+runtime/*
+!runtime/.gitkeep
 tests/runtime/*
 !tests/runtime/.gitkeep
 *.log

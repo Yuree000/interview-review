@@ -35,7 +35,7 @@ def _candidate_paths() -> list[str]:
 
 
 def _save_uploaded_file(uploaded_file) -> str:
-    upload_dir = settings.base_dir / "tests" / "runtime" / "uploads"
+    upload_dir = settings.upload_dir
     upload_dir.mkdir(parents=True, exist_ok=True)
     target_path = upload_dir / uploaded_file.name
     target_path.write_bytes(uploaded_file.getbuffer())
@@ -197,7 +197,7 @@ with controls_col:
                 else:
                     saved_path = _save_uploaded_file(uploaded_file)
                     st.session_state["new_analysis_input_path"] = saved_path
-                    st.info(f"Saved upload to: {saved_path}")
+                    st.info(f"Saved upload to runtime workspace: {saved_path}")
 
 with guide_col:
     with st.container(border=True):

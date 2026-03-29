@@ -58,6 +58,13 @@ def _env_int(name: str, default: int) -> int:
         raise ConfigurationError(f"{name} must be an integer, got: {raw!r}") from exc
 
 
+def _resolve_env_path(name: str, default: str) -> Path:
+    candidate = Path(_env(name, default)).expanduser()
+    if not candidate.is_absolute():
+        candidate = BASE_DIR / candidate
+    return candidate.resolve()
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str
@@ -67,6 +74,8 @@ class Settings:
     output_dir: Path
     audio_output_dir: Path
     log_dir: Path
+    runtime_dir: Path
+    upload_dir: Path
     ffmpeg_binary: str
     ffprobe_binary: str
     tencent_secret_id: str
@@ -86,7 +95,13 @@ class Settings:
     llm_structured_model: str
 
     def ensure_runtime_dirs(self) -> None:
-        for directory in (self.output_dir, self.audio_output_dir, self.log_dir):
+        for directory in (
+            self.output_dir,
+            self.audio_output_dir,
+            self.log_dir,
+            self.runtime_dir,
+            self.upload_dir,
+        ):
             directory.mkdir(parents=True, exist_ok=True)
 
     def missing_keys(self, keys: Iterable[str]) -> list[str]:
@@ -118,9 +133,11 @@ class Settings:
 def get_settings() -> Settings:
     load_project_env()
 
-    output_dir = (BASE_DIR / _env("OUTPUT_DIR", "./outputs")).resolve()
-    audio_output_dir = (BASE_DIR / _env("AUDIO_OUTPUT_DIR", "./audio_cache")).resolve()
-    log_dir = (BASE_DIR / _env("LOG_DIR", "./logs")).resolve()
+    output_dir = _resolve_env_path("OUTPUT_DIR", "./outputs")
+    audio_output_dir = _resolve_env_path("AUDIO_OUTPUT_DIR", "./audio_cache")
+    log_dir = _resolve_env_path("LOG_DIR", "./logs")
+    runtime_dir = _resolve_env_path("RUNTIME_DIR", "./runtime")
+    upload_dir = _resolve_env_path("UPLOAD_DIR", str(runtime_dir / "uploads")) if _env("UPLOAD_DIR") else (runtime_dir / "uploads").resolve()
 
     return Settings(
         app_name="Interview Review System",
@@ -130,6 +147,8 @@ def get_settings() -> Settings:
         output_dir=output_dir,
         audio_output_dir=audio_output_dir,
         log_dir=log_dir,
+        runtime_dir=runtime_dir,
+        upload_dir=upload_dir,
         ffmpeg_binary=_env("FFMPEG_BINARY", "ffmpeg"),
         ffprobe_binary=_env("FFPROBE_BINARY", "ffprobe"),
         tencent_secret_id=_env("TENCENT_SECRET_ID"),

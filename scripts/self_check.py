@@ -9,7 +9,7 @@ from pathlib import Path
 from config import ENV_FILE, get_settings
 from core.exceptions import ConfigurationError
 from core.logging_config import configure_logging
-from core.runtime import command_path, python_version_supported
+from core.runtime import command_path, python_version_status
 
 
 @dataclass
@@ -27,12 +27,13 @@ def run_checks(required_keys: list[str]) -> list[CheckResult]:
     settings = get_settings()
     settings.ensure_runtime_dirs()
     configure_logging(settings.log_dir, debug=settings.debug)
+    version_status = python_version_status()
 
     results = [
         CheckResult(
-            "Python >= 3.10",
-            "PASS" if python_version_supported() else "FAIL",
-            sys.version.split()[0],
+            "Python support window",
+            version_status.status,
+            version_status.detail,
         ),
         CheckResult(
             ".env.example",
@@ -48,6 +49,16 @@ def run_checks(required_keys: list[str]) -> list[CheckResult]:
             ".env",
             "PASS" if ENV_FILE.exists() else "WARN",
             "Exists" if ENV_FILE.exists() else "Not created, needed before external service integration",
+        ),
+        CheckResult(
+            "Runtime workspace",
+            "PASS" if settings.runtime_dir.exists() else "FAIL",
+            str(settings.runtime_dir),
+        ),
+        CheckResult(
+            "Upload workspace",
+            "PASS" if settings.upload_dir.exists() else "FAIL",
+            str(settings.upload_dir),
         ),
     ]
 
